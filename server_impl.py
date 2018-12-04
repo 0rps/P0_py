@@ -43,7 +43,7 @@ class ControlThread(Thread):
 
             if cmd == CMD_NEW:
                 client_uuid, client_pipe = params[0], params[1]
-                self.__control_channels[client_uuid] = client_pipe
+                self.__control_channels[client_uuid] = os.fdopen(client_pipe, 'w')
             elif cmd == CMD_CLOSED:
                 client_uuid = params[0]
                 del self.__control_channels[client_uuid]
@@ -102,35 +102,46 @@ class WorkerThread(Thread):
         self._socket = client_socket
         self._socket.setblocking(False)
         self._control_queue = result_queue
-        self._control_pipe, write_pipe = os.pipe2(os.O_NONBLOCK)
+        ssock, csock = socket.socketpair()
+        ssock.setblocking(False)
+        csock.setblocking(False)
 
-        cmd = ControlCommand(CMD_NEW, (self._uuid, write_pipe))
+        self._control_sock = csock
+        cmd = ControlCommand(CMD_NEW, (self._uuid, ssock))
         self._control_queue.put_nowait(cmd)
 
         self._recv_buffer = b''
         self._send_buffer = []
 
     def run(self):
-        inputs = [self._control_pipe, self._socket]
+        inputs = [self._control_sock, self._socket]
         while True:
             outputs = []
             if len(self._send_buffer) > 0:
                 outputs = [self._socket]
-            readable, writable, exceptional = select.select(inputs, outputs, inputs)
 
+            readable, writable, exceptional = select.select(inputs, outputs, inputs)
             for sock in exceptional:
                 pass
 
             for sock in readable:
-                if sock == self._control_pipe:
+                if sock == self._control_sock:
                     # NOTE: unused data
-                    self._control_pipe.read()
-
-                    self._control_pipe.close()
+                    data = self._control_sock.recv(1024)
+                    self._control_sock.close()
                     self._socket.close()
+                    self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid, )))
                     return
                 elif sock == self._socket:
-                    pass
+                    data = self._socket.recv(1024)
+                    if len(data) > 0:
+                        self._recv_buffer += data
+                        self._parse_buffer()
+                    else:
+                        self._control_sock.close()
+                        self._socket.close()
+                        self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid,)))
+                        return
 
             for sock in writable:
                 send_data = self._send_buffer[0]
@@ -147,6 +158,7 @@ class WorkerThread(Thread):
 
     def _get_command(self, data):
         key = data
+        print('get, {}'.format(key))
         with kv_lock:
             values = kv.get(key)
 
@@ -157,7 +169,8 @@ class WorkerThread(Thread):
         self._write_message(msg)
 
     def _put_command(self, data):
-        key, value = data.partition(',')
+        key, _, value = data.partition(',')
+        print('put: {}:{}'.format(key, value))
         with kv_lock:
             kv.put(key, value)
 
@@ -166,7 +179,7 @@ class WorkerThread(Thread):
             raw_cmd, middle, tail = self._recv_buffer.partition(b'\n')
             if len(middle) == 0:
                 return
-
+            self._recv_buffer = tail
             cmd, _, data = raw_cmd.partition(b',')
             data = data.decode('utf-8')
             if cmd == b'get':
