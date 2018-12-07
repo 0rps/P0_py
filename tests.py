@@ -213,14 +213,77 @@ class TestWorker(unittest.TestCase):
         if self._thread.is_alive():
             raise Exception("Thread is not dead")
 
-#
-# class TestListener(unittest.TestCase):
-#     pass
-#
-#
-# class TestControlManager(unittest.TestCase):
-#     pass
-#
+
+class TestListenerStart(unittest.TestCase):
+
+    PORT = 18781
+
+    def test_start_finish_listener(self):
+        control_queue = queue.Queue()
+        listener = server.ListenerThread(self.PORT, control_queue)
+        listener.start()
+
+        cmd = control_queue.get(timeout=1)
+        self.assertEqual(cmd.cmd, server.CMD_NEW)
+
+        listener_uuid, sock = cmd.params
+        sock.send(str(server.CMD_CLOSE_ALL).encode('utf-8'))
+
+        cmd = control_queue.get(timeout=1)
+
+        self.assertEqual(cmd.cmd, server.CMD_CLOSED)
+        self.assertEqual(listener_uuid, cmd.params[0])
+
+        listener.join(timeout=1)
+
+
+class TestListener(unittest.TestCase):
+
+    PORT = 18781
+
+    def setUp(self):
+        self._queue = queue.Queue()
+        self._listener = server.ListenerThread(self.PORT, self._queue)
+        self._listener.start()
+        cmd = self._queue.get(timeout=1)
+        self._control_socket = cmd.params[1]
+
+    def test_start_close_client(self):
+        client = socket.socket()
+        client.connect((socket.gethostname(), self.PORT))
+        new_cmd = self._queue.get(timeout=1)
+        self.assertEqual(new_cmd.cmd, server.CMD_NEW)
+
+        client.close()
+        closed_cmd = self._queue.get(timeout=1)
+        self.assertEqual(closed_cmd.cmd, server.CMD_CLOSED)
+
+    def tearDown(self):
+        self._control_socket.send(str(server.CMD_CLOSE_ALL).encode('utf-8'))
+        self._listener.join(timeout=1)
+
+
+class TestControlManager(unittest.TestCase):
+
+    def setUp(self):
+        self._in = queue.Queue()
+        self._out = queue.Queue()
+        self._thread = server.ControlThread(self._in, self._out)
+        self._thread.start()
+
+    def test_count_active(self):
+        pass
+
+    def test_count_dropped(self):
+        pass
+
+    def test_close_clients(self):
+        pass
+
+    def tearDown(self):
+        self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
+        self._thread.join(timeout=1)
+
 #
 # class TestServer(unittest.TestCase):
 #     pass
