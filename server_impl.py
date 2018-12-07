@@ -42,8 +42,8 @@ class ControlThread(Thread):
             cmd, params = control_cmd.cmd, control_cmd.params
 
             if cmd == CMD_NEW:
-                client_uuid, client_pipe = params[0], params[1]
-                self.__control_channels[client_uuid] = os.fdopen(client_pipe, 'w')
+                client_uuid, client_sock = params[0], params[1]
+                self.__control_channels[client_uuid] = client_sock
             elif cmd == CMD_CLOSED:
                 client_uuid = params[0]
                 del self.__control_channels[client_uuid]
@@ -55,8 +55,8 @@ class ControlThread(Thread):
             elif cmd == CMD_COUNT_DROPPED:
                 self.__out_queue.put_nowait(self.dropped)
             elif cmd == CMD_CLOSE_ALL:
-                for pipe in self.__control_channels.values():
-                    pipe.write(cmd)
+                for sock in self.__control_channels.values():
+                    sock.write(str(CMD_CLOSE_ALL).encode('utf-8'))
                 if not len(self.__control_channels):
                     self.__out_queue.put_nowait(ControlCommand(CMD_CLOSED, None))
                     break
@@ -68,9 +68,12 @@ class ListenerThread(Thread):
         super().__init__()
         self._uuid = uuid.uuid4().hex
         self._control_queue = result_queue
-        self._control_pipe, write_pipe = os.pipe2(os.O_NONBLOCK)
+        ssock, csock = socket.socketpair()
+        ssock.setblocking(False)
+        csock.setblocking(False)
+        self._control_sock = csock
 
-        cmd = ControlCommand(CMD_NEW, (self._uuid, write_pipe))
+        cmd = ControlCommand(CMD_NEW, (self._uuid, ssock))
         self._control_queue.put_nowait(cmd)
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -80,13 +83,14 @@ class ListenerThread(Thread):
         self._socket.listen(LISTEN_BACKLOG)
 
     def run(self):
-        inputs = [self._control_pipe, self._socket]
+        inputs = [self._control_sock, self._socket]
         while True:
             readable, _, exceptional = select.select(inputs, [], inputs)
             for s in readable:
-                if s == self._control_pipe:
+                if s == self._control_sock:
+                    self._control_sock.recv(1024)
                     self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid, )))
-                    self._control_pipe.close()
+                    self._control_sock.close()
                     self._socket.close()
                     return
                 elif s == self._socket:
