@@ -64,6 +64,7 @@ class ControlThread(Thread):
                 if self.__listener_uuid != client_uuid:
                     self.dropped += 1
                     self.active -= 1
+
                 if self.__is_close and len(self.__control_channels) == 0:
                     self.__out_queue.put_nowait(ControlCommand(CMD_CLOSED, None))
                     break
@@ -182,7 +183,7 @@ class WorkerThread(Thread):
 
     def _get_command(self, data):
         key = data
-        print('get, {}'.format(key))
+        #print('get, {}'.format(key))
         with kv_lock:
             values = kv.get(key)
 
@@ -194,7 +195,7 @@ class WorkerThread(Thread):
 
     def _put_command(self, data):
         key, _, value = data.partition(',')
-        print('put: {}:{}'.format(key, value))
+        # print('put: {}:{}'.format(key, value))
         with kv_lock:
             kv.put(key, value)
 

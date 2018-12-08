@@ -71,60 +71,60 @@ class ClientException(Exception):
     pass
 
 
-class Client:
-    def __init__(self, is_slow=False):
-        self._socket = None
-        self._is_slow = is_slow
-
-    def connect(self, host, port) -> bool:
-        if self._socket is not None:
-            raise ClientException('Client already connected')
-
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._socket.connect((host, port))
-
-    def set_value(self, key, value):
-        message = "put,{key},{value}\n".format(key=key, value=value)
-        self._send(message)
-
-    def get_value(self, key):
-        message = "get,{key}".format(key=key)
-        self._send(message)
-        raw_values = self._receive().split('\n')
-        values = [value[value.find(','):] for value in raw_values]
-        return values
-
-    def delete_key(self, key):
-        message = "delete,{key}".format(key=key)
-        self._send(message)
-
-    def _send(self, message):
-        message = message.encode('utf-8')
-        total_sent = 0
-        while total_sent < len(message):
-            sent = self._socket.send(message[total_sent:])
-            if sent == 0:
-                raise RuntimeError('Connection closed')
-            total_sent += sent
-
-    def _receive(self):
-        buffer = b''
-        while True:
-            chunk = self._socket.recv(1024)
-            if chunk == b'':
-                break
-                # raise RuntimeError('Connection closed')
-            buffer += chunk
-            if len(buffer) > 1 and buffer[-1] == b'\n' and buffer[-2] == b'\n':
-                buffer = buffer[:-2]
-                break
-
-            if len(buffer) == 1 and buffer[0] == b'\n':
-                buffer = b''
-                break
-
-        return buffer.decode('utf-8')
-
+# class Client:
+#     def __init__(self, is_slow=False):
+#         self._socket = None
+#         self._is_slow = is_slow
+#
+#     def connect(self, host, port) -> bool:
+#         if self._socket is not None:
+#             raise ClientException('Client already connected')
+#
+#         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#         self._socket.connect((host, port))
+#
+#     def set_value(self, key, value):
+#         message = "put,{key},{value}\n".format(key=key, value=value)
+#         self._send(message)
+#
+#     def get_value(self, key):
+#         message = "get,{key}".format(key=key)
+#         self._send(message)
+#         raw_values = self._receive().split('\n')
+#         values = [value[value.find(','):] for value in raw_values]
+#         return values
+#
+#     def delete_key(self, key):
+#         message = "delete,{key}".format(key=key)
+#         self._send(message)
+#
+#     def _send(self, message):
+#         message = message.encode('utf-8')
+#         total_sent = 0
+#         while total_sent < len(message):
+#             sent = self._socket.send(message[total_sent:])
+#             if sent == 0:
+#                 raise RuntimeError('Connection closed')
+#             total_sent += sent
+#
+#     def _receive(self):
+#         buffer = b''
+#         while True:
+#             chunk = self._socket.recv(1024)
+#             if chunk == b'':
+#                 break
+#                 # raise RuntimeError('Connection closed')
+#             buffer += chunk
+#             if len(buffer) > 1 and buffer[-1] == b'\n' and buffer[-2] == b'\n':
+#                 buffer = buffer[:-2]
+#                 break
+#
+#             if len(buffer) == 1 and buffer[0] == b'\n':
+#                 buffer = b''
+#                 break
+#
+#         return buffer.decode('utf-8')
+#
 
 class TestWorker(unittest.TestCase):
     def setUp(self):
@@ -297,16 +297,16 @@ class TestControlManager(unittest.TestCase):
         result = self._out.get(timeout=1)
         self.assertEqual(result, 0)
 
-        client1, _ = self._open_client()
-        client2, _ = self._open_client()
-        client3, _ = self._open_client()
+        client1, sock1 = self._open_client()
+        client2, sock2 = self._open_client()
+        client3, sock3 = self._open_client()
 
         self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
         result = self._out.get(timeout=1)
         self.assertEqual(result, 3)
 
-        client4, _ = self._open_client()
-        client5, _ = self._open_client()
+        client4, sock4 = self._open_client()
+        client5, sock5 = self._open_client()
 
         self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
         result = self._out.get(timeout=1)
@@ -319,9 +319,9 @@ class TestControlManager(unittest.TestCase):
         self._close_client(client5)
 
     def test_count_dropped(self):
-        client1, _ = self._open_client()
-        client2, _ = self._open_client()
-        client3, _ = self._open_client()
+        client1, sock1 = self._open_client()
+        client2, sock2 = self._open_client()
+        client3, sock3 = self._open_client()
 
         self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
         result = self._out.get(timeout=1)
@@ -334,7 +334,7 @@ class TestControlManager(unittest.TestCase):
         result = self._out.get(timeout=1)
         self.assertEqual(result, 1)
 
-        client4, _ = self._open_client()
+        client4, sock4 = self._open_client()
         self._close_client(client3)
 
         self._in.put(server.ControlCommand(server.CMD_COUNT_DROPPED, None))
@@ -347,8 +347,8 @@ class TestControlManager(unittest.TestCase):
         self.assertEqual(result, 0)
 
     def test_close_clients(self):
-        _, sock1 = self._open_client()
-        _, sock2 = self._open_client()
+        client_1, sock1 = self._open_client()
+        client_2, sock2 = self._open_client()
         self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
 
         close_all = str(server.CMD_CLOSE_ALL).encode('utf-8')
@@ -357,6 +357,9 @@ class TestControlManager(unittest.TestCase):
         self.assertEqual(data1, close_all)
         data2 = sock2.recv(1024)
         self.assertEqual(data2, close_all)
+
+        self._in.put(server.ControlCommand(server.CMD_CLOSED, (client_1,)))
+        self._in.put(server.ControlCommand(server.CMD_CLOSED, (client_2,)))
 
     def tearDown(self):
         self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
@@ -374,71 +377,66 @@ class TestStartStopServer(unittest.TestCase):
         self._server._control.join(timeout=2)
 
 
-# class TestServer(unittest.TestCase):
-#
-#     PORT = 18781
-#
-#     def setUp(self):
-#         self._server = server.KeyValueServer()
-#         self._server.start(self.PORT)
-#
-#     def _new_client(self):
-#         sock = socket.socket()
-#         sock.connect((socket.gethostname(), self.PORT))
-#         return sock
-#
-#     def test_active_client(self):
-#         count = self._server.count_active()
-#         self.assertEqual(count, 0)
-#
-#         self._new_client()
-#         time.sleep(0.5)
-#         count = self._server.count_active()
-#         self.assertEqual(count, 1)
-#
-#         sock = self._new_client()
-#         time.sleep(0.1)
-#         count = self._server.count_active()
-#         self.assertEqual(count, 2)
-#
-#         sock.close()
-#         time.sleep(0.1)
-#         count = self._server.count_active()
-#         self.assertEqual(count, 1)
-#
-#     def test_dropped_client(self):
-#         sock1 = self._new_client()
-#         sock2 = self._new_client()
-#         sock3 = self._new_client()
-#
-#         count = self._server.count_dropped()
-#         self.assertEqual(count, 0)
-#
-#         sock1.close()
-#         sock2.close()
-#
-#         time.sleep(0.1)
-#         count = self._server.count_dropped()
-#         self.assertEqual(count, 1)
-#
-#         sock3.close()
-#         time.sleep(0.1)
-#         count = self._server.count_dropped()
-#         self.assertEqual(count, 0)
-#
-#     def test_multiple_clients(self):
-#         pass
-#
-#     def test_close_all(self):
-#         sock1 = self._new_client()
-#         self._server.close()
-#         self._server._control.join(timeout=2)
-#         data = sock1.recv(1024)
-#         self.assertEqual(data, b'')
-#
-#     def tearDown(self):
-#         self._server.close()
-#         self._server._control.join(timeout=2)
+class TestServer(unittest.TestCase):
+
+    PORT = 18781
+
+    def setUp(self):
+        self._server = server.KeyValueServer()
+        self._server.start(self.PORT)
+        self._socks = []
+
+    def _new_client(self):
+        sock = socket.socket()
+        sock.connect((socket.gethostname(), self.PORT))
+        self._socks.append(sock)
+        return sock
+
+    def test_active_client(self):
+        count = self._server.count_active()
+        self.assertEqual(count, 0)
+
+        sock1 = self._new_client()
+        time.sleep(0.5)
+        count = self._server.count_active()
+        self.assertEqual(count, 1)
+
+        sock2 = self._new_client()
+        time.sleep(0.1)
+        count = self._server.count_active()
+        self.assertEqual(count, 2)
+
+        sock2.close()
+        time.sleep(0.1)
+        count = self._server.count_active()
+        self.assertEqual(count, 1)
+
+    def test_dropped_client(self):
+        sock1 = self._new_client()
+        sock2 = self._new_client()
+        sock3 = self._new_client()
+
+        count = self._server.count_dropped()
+        self.assertEqual(count, 0)
+
+        sock1.close()
+        sock2.close()
+
+        time.sleep(0.1)
+        count = self._server.count_dropped()
+        self.assertEqual(count, 2)
+
+        sock3.close()
+        time.sleep(0.1)
+        count = self._server.count_dropped()
+        self.assertEqual(count, 3)
+
+    def test_multiple_clients(self):
+        pass
+
+    def tearDown(self):
+        self._server.close()
+        self._server._control.join(timeout=2)
 
 
 if __name__ == '__main__':
