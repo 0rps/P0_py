@@ -267,12 +267,29 @@ class TestListener(unittest.TestCase):
 class TestStartStopControlManager(unittest.TestCase):
 
     def stop_stop_with_no_clients(self):
-        # TODO: implement
-        pass
+        self._in = queue.Queue()
+        self._out = queue.Queue()
+        self._thread = server.ControlThread(self._in, self._out)
+        self._thread.start()
+        self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
+        self._thread.join(timeout=1)
 
     def stop_with_clients(self):
-        # TODO: implement
-        pass
+        self._in = queue.Queue()
+        self._out = queue.Queue()
+        self._thread = server.ControlThread(self._in, self._out)
+        self._thread.start()
+
+        ssock, csock= socket.socketpair()
+        cuuid = uuid.uuid4().hex
+        self._in.put(server.ControlCommand(server.CMD_NEW, (cuuid, ssock)))
+        self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
+
+        data = csock.recv(1024)
+        self.assertEqual(data, str(server.CMD_CLOSE_ALL).encode('utf-8'))
+
+        self._in.put(server.ControlCommand(server.CMD_CLOSED, (cuuid, )))
+        self._thread.join(timeout=1)
 
 
 class TestControlManager(unittest.TestCase):
