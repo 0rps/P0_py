@@ -1,5 +1,6 @@
 import unittest
 import time
+import uuid
 import os
 import socket
 import queue
@@ -271,41 +272,98 @@ class TestControlManager(unittest.TestCase):
         self._thread = server.ControlThread(self._in, self._out)
         self._thread.start()
 
+    def _open_client(self):
+        client_uuid = uuid.uuid4().hex
+        csock, ssock = socket.socketpair()
+        self._in.put(server.ControlCommand(server.CMD_NEW, (client_uuid, ssock)))
+        return client_uuid, csock
+
+    def _close_client(self, client_uuid):
+        self._in.put(server.ControlCommand(server.CMD_CLOSED, (client_uuid, )))
+
     def test_count_active(self):
-        pass
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 0)
+
+        client1, _ = self._open_client()
+        client2, _ = self._open_client()
+        client3, _ = self._open_client()
+
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 3)
+
+        client4, _ = self._open_client()
+        client5, _ = self._open_client()
+
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 5)
+
+        self._close_client(client1)
+        self._close_client(client2)
+        self._close_client(client3)
+        self._close_client(client4)
+        self._close_client(client5)
 
     def test_count_dropped(self):
-        pass
+        client1, _ = self._open_client()
+        client2, _ = self._open_client()
+        client3, _ = self._open_client()
+
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 3)
+
+        self._close_client(client1)
+        self._close_client(client2)
+
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 1)
+
+        client4, _ = self._open_client()
+        self._close_client(client3)
+
+        self._in.put(server.ControlCommand(server.CMD_COUNT_DROPPED, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 3)
+
+        self._close_client(client4)
+        self._in.put(server.ControlCommand(server.CMD_COUNT_ACTIVE, None))
+        result = self._out.get(timeout=1)
+        self.assertEqual(result, 0)
 
     def test_close_clients(self):
-        pass
+        _, sock1 = self._open_client()
+        _, sock2 = self._open_client()
+        self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
+
+        close_all = str(server.CMD_CLOSE_ALL).encode('utf-8')
+
+        data1 = sock1.recv(1024)
+        self.assertEqual(data1, close_all)
+        data2 = sock2.recv(1024)
+        self.assertEqual(data2, close_all)
 
     def tearDown(self):
         self._in.put(server.ControlCommand(server.CMD_CLOSE_ALL, None))
         self._thread.join(timeout=1)
 
-#
-# class TestServer(unittest.TestCase):
-#     pass
 
+class TestServer(unittest.TestCase):
 
-def main():
-    server_socket, client_socket = socket.socketpair()
-    c_queue = queue.Queue()
-    thread = server.WorkerThread(client_socket, c_queue)
-    thread.start()
+    PORT = 18781
 
-    cmd = c_queue.get()
+    def setUp(self):
+        pass
+        # self._server = server.KeyValueServer()
+        # self._server.start()
 
-    w_uuid, ssock = cmd.params
-    print("uuid: ", w_uuid)
-
-    ssock.send(str(server.CMD_CLOSE_ALL).encode())
-    time.sleep(5)
-    item = c_queue.get(timeout=2)
-    print(item)
+    def tearDown(self):
+        pass
 
 
 if __name__ == '__main__':
-    #main()
     unittest.main()

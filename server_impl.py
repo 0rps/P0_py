@@ -44,19 +44,26 @@ class ControlThread(Thread):
             if cmd == CMD_NEW:
                 client_uuid, client_sock = params[0], params[1]
                 self.__control_channels[client_uuid] = client_sock
+                print("opened: {}".format(client_uuid))
             elif cmd == CMD_CLOSED:
+
                 client_uuid = params[0]
+                print("closed: {}".format(client_uuid))
+                self.__control_channels[client_uuid].close()
                 del self.__control_channels[client_uuid]
+                self.dropped += 1
                 if self.__is_close and len(self.__control_channels) == 0:
                     self.__out_queue.put_nowait(ControlCommand(CMD_CLOSED, None))
                     break
             elif cmd == CMD_COUNT_ACTIVE:
+                print("count active")
                 self.__out_queue.put_nowait(len(self.__control_channels))
             elif cmd == CMD_COUNT_DROPPED:
+                print("count dropped")
                 self.__out_queue.put_nowait(self.dropped)
             elif cmd == CMD_CLOSE_ALL:
                 for sock in self.__control_channels.values():
-                    sock.write(str(CMD_CLOSE_ALL).encode('utf-8'))
+                    sock.send(str(CMD_CLOSE_ALL).encode('utf-8'))
                 if not len(self.__control_channels):
                     self.__out_queue.put_nowait(ControlCommand(CMD_CLOSED, None))
                     break
