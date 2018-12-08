@@ -225,7 +225,7 @@ class TestListenerStart(unittest.TestCase):
         listener.start()
 
         cmd = control_queue.get(timeout=1)
-        self.assertEqual(cmd.cmd, server.CMD_NEW)
+        self.assertEqual(cmd.cmd, server.CMD_NEW_LISTENER)
 
         listener_uuid, sock = cmd.params
         sock.send(str(server.CMD_CLOSE_ALL).encode('utf-8'))
@@ -262,6 +262,17 @@ class TestListener(unittest.TestCase):
     def tearDown(self):
         self._control_socket.send(str(server.CMD_CLOSE_ALL).encode('utf-8'))
         self._listener.join(timeout=1)
+
+
+class TestStartStopControlManager(unittest.TestCase):
+
+    def stop_stop_with_no_clients(self):
+        # TODO: implement
+        pass
+
+    def stop_with_clients(self):
+        # TODO: implement
+        pass
 
 
 class TestControlManager(unittest.TestCase):
@@ -352,17 +363,82 @@ class TestControlManager(unittest.TestCase):
         self._thread.join(timeout=1)
 
 
-class TestServer(unittest.TestCase):
+class TestStartStopServer(unittest.TestCase):
 
     PORT = 18781
 
-    def setUp(self):
-        pass
-        # self._server = server.KeyValueServer()
-        # self._server.start()
+    def test(self):
+        self._server = server.KeyValueServer()
+        self._server.start(self.PORT)
+        self._server.close()
+        self._server._control.join(timeout=2)
 
-    def tearDown(self):
-        pass
+
+# class TestServer(unittest.TestCase):
+#
+#     PORT = 18781
+#
+#     def setUp(self):
+#         self._server = server.KeyValueServer()
+#         self._server.start(self.PORT)
+#
+#     def _new_client(self):
+#         sock = socket.socket()
+#         sock.connect((socket.gethostname(), self.PORT))
+#         return sock
+#
+#     def test_active_client(self):
+#         count = self._server.count_active()
+#         self.assertEqual(count, 0)
+#
+#         self._new_client()
+#         time.sleep(0.5)
+#         count = self._server.count_active()
+#         self.assertEqual(count, 1)
+#
+#         sock = self._new_client()
+#         time.sleep(0.1)
+#         count = self._server.count_active()
+#         self.assertEqual(count, 2)
+#
+#         sock.close()
+#         time.sleep(0.1)
+#         count = self._server.count_active()
+#         self.assertEqual(count, 1)
+#
+#     def test_dropped_client(self):
+#         sock1 = self._new_client()
+#         sock2 = self._new_client()
+#         sock3 = self._new_client()
+#
+#         count = self._server.count_dropped()
+#         self.assertEqual(count, 0)
+#
+#         sock1.close()
+#         sock2.close()
+#
+#         time.sleep(0.1)
+#         count = self._server.count_dropped()
+#         self.assertEqual(count, 1)
+#
+#         sock3.close()
+#         time.sleep(0.1)
+#         count = self._server.count_dropped()
+#         self.assertEqual(count, 0)
+#
+#     def test_multiple_clients(self):
+#         pass
+#
+#     def test_close_all(self):
+#         sock1 = self._new_client()
+#         self._server.close()
+#         self._server._control.join(timeout=2)
+#         data = sock1.recv(1024)
+#         self.assertEqual(data, b'')
+#
+#     def tearDown(self):
+#         self._server.close()
+#         self._server._control.join(timeout=2)
 
 
 if __name__ == '__main__':

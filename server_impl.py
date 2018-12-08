@@ -13,6 +13,7 @@ LISTEN_BACKLOG = 25
 CMD_CLOSE_ALL = 1
 CMD_CLOSED = 2
 CMD_NEW = 3
+CMD_NEW_LISTENER = 6
 CMD_COUNT_ACTIVE = 4
 CMD_COUNT_DROPPED = 5
 
@@ -31,37 +32,49 @@ class ControlThread(Thread):
     def __init__(self, in_queue: Queue, out_queue: Queue):
         super().__init__()
         self.dropped = 0
+        self.active = 0
         self.__control_channels = {}
         self.__in_queue = in_queue
         self.__out_queue = out_queue
         self.__is_close = False
+        self.__listener_uuid = None
 
     def run(self):
         while True:
             control_cmd = self.__in_queue.get()
             cmd, params = control_cmd.cmd, control_cmd.params
 
+            print('cmd is: {}'.format(cmd))
+
+            if cmd == CMD_NEW_LISTENER:
+                client_uuid, client_sock = params[0], params[1]
+                self.__listener_uuid = client_uuid
+                self.__control_channels[client_uuid] = client_sock
+                print("opened listener: {}".format(client_uuid))
             if cmd == CMD_NEW:
                 client_uuid, client_sock = params[0], params[1]
+                self.active += 1
                 self.__control_channels[client_uuid] = client_sock
                 print("opened: {}".format(client_uuid))
             elif cmd == CMD_CLOSED:
-
                 client_uuid = params[0]
-                print("closed: {}".format(client_uuid))
                 self.__control_channels[client_uuid].close()
                 del self.__control_channels[client_uuid]
-                self.dropped += 1
+
+                if self.__listener_uuid != client_uuid:
+                    self.dropped += 1
+                    self.active -= 1
                 if self.__is_close and len(self.__control_channels) == 0:
                     self.__out_queue.put_nowait(ControlCommand(CMD_CLOSED, None))
                     break
             elif cmd == CMD_COUNT_ACTIVE:
                 print("count active")
-                self.__out_queue.put_nowait(len(self.__control_channels))
+                self.__out_queue.put_nowait(self.active)
             elif cmd == CMD_COUNT_DROPPED:
                 print("count dropped")
                 self.__out_queue.put_nowait(self.dropped)
             elif cmd == CMD_CLOSE_ALL:
+                self.__is_close = True
                 for sock in self.__control_channels.values():
                     sock.send(str(CMD_CLOSE_ALL).encode('utf-8'))
                 if not len(self.__control_channels):
@@ -80,7 +93,7 @@ class ListenerThread(Thread):
         csock.setblocking(False)
         self._control_sock = csock
 
-        cmd = ControlCommand(CMD_NEW, (self._uuid, ssock))
+        cmd = ControlCommand(CMD_NEW_LISTENER, (self._uuid, ssock))
         self._control_queue.put_nowait(cmd)
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -95,7 +108,7 @@ class ListenerThread(Thread):
             readable, _, exceptional = select.select(inputs, [], inputs)
             for s in readable:
                 if s == self._control_sock:
-                    self._control_sock.recv(1024)
+                    data = self._control_sock.recv(1024)
                     self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid, )))
                     self._control_sock.close()
                     self._socket.close()
@@ -216,16 +229,16 @@ class KeyValueServer:
         self._query_queue = Queue()
         self._result_queue = Queue()
         self._status = self.S_UNKNOWN
+        self._control = ControlThread(self._query_queue, self._result_queue)
 
     def start(self, port: int):
         if self._status == self.S_CLOSED:
             raise KVServerException('Server already closed')
 
-        self._status = self.S_STARTING
-        control_thread = ControlThread(self._query_queue, self._result_queue)
-        control_thread.start()
-
         listener_thread = ListenerThread(port, self._query_queue)
+
+        self._status = self.S_STARTING
+        self._control.start()
         listener_thread.start()
 
         self._status = self.S_RUNNING
@@ -245,4 +258,4 @@ class KeyValueServer:
     def _send_recv(self, cmd):
         cmd = ControlCommand(cmd, None)
         self._query_queue.put_nowait(cmd)
-        return self._result_queue.get()
+        return self._result_queue.get(timeout=2)
