@@ -110,9 +110,9 @@ class ListenerThread(Thread):
             for s in readable:
                 if s == self._control_sock:
                     data = self._control_sock.recv(1024)
-                    self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid, )))
                     self._control_sock.close()
                     self._socket.close()
+                    self._control_queue.put_nowait(ControlCommand(CMD_CLOSED, (self._uuid, )))
                     return
                 elif s == self._socket:
                     client_socket, _ = s.accept()

@@ -448,9 +448,6 @@ class TestServer(unittest.TestCase):
         count = self._server.count_dropped()
         self.assertEqual(count, 3)
 
-    def test_multiple_clients(self):
-        pass
-
     def tearDown(self):
         self._server.close()
         self._server._control.join(timeout=2)
